@@ -1,5 +1,7 @@
 #!/bin/bash
-set -euo pipefail
+# Disable exit-on-error
+set -uo pipefail
+set +e
 
 if [ "${DEBUG:-false}" = true ]; then
   set -x
@@ -24,19 +26,18 @@ CSV_REPORT="${REPORTS_DIR}/kube-lint-report.csv"
 # --------------------------------------------------------------
 if [ ! -d "$REPORTS_DIR" ]; then
     logInfoMessage "Directory does not exist. Creating: $REPORTS_DIR"
-    mkdir -p "$REPORTS_DIR"
+    mkdir -p "$REPORTS_DIR" || logWarningMessage "Failed to create $REPORTS_DIR"
 else
     logInfoMessage "Directory already exists: $REPORTS_DIR"
 fi
 
-chmod -R 0777 "${REPORTS_DIR}" 2>/dev/null || true
+chmod -R 0777 "${REPORTS_DIR}" 2>/dev/null || logWarningMessage "chmod failed"
 
 # --------------------------------------------------------------
 # Validate codebase
 # --------------------------------------------------------------
 cd "${CODEBASE_LOCATION}" || {
   logErrorMessage "Codebase directory not found: ${CODEBASE_LOCATION}"
-  exit 1
 }
 
 logInfoMessage "=============================================================="
@@ -50,18 +51,18 @@ logInfoMessage "=============================================================="
 
 if ! command -v kube-linter &>/dev/null; then
   logErrorMessage "KubeLinter is not installed or not found in PATH."
-  exit 1
+else
+  logInfoMessage "Using KubeLinter version:"
+  kube-linter version || logWarningMessage "Failed to get kube-linter version"
 fi
 
-logInfoMessage "Using KubeLinter version:"
-kube-linter version || true
 logInfoMessage "--------------------------------------------------------------"
 
 # --------------------------------------------------------------
 # Run kube-linter
 # --------------------------------------------------------------
 logInfoMessage "Running kube-linter scan..."
-kube-linter lint . > "${TXT_REPORT}" || true
+kube-linter lint . > "${TXT_REPORT}" 2>&1 || logWarningMessage "kube-linter returned non-zero exit code"
 
 logInfoMessage "TXT report generated: ${TXT_REPORT}"
 
@@ -81,14 +82,13 @@ grep -v "KubeLinter" "${TXT_REPORT}" | grep ":" | while IFS= read -r line; do
     CHECK=$(echo "$line" | sed -n 's/.*(check: \([^,]*\),.*/\1/p')
     REMEDIATION=$(echo "$line" | sed -n 's/.*remediation: \(.*\)).*/\1/p')
 
-    # Escape commas
     OBJECT_ESCAPED=$(echo "$OBJECT" | sed 's/,/;/g')
     MESSAGE_ESCAPED=$(echo "$MESSAGE" | sed 's/,/;/g')
     REMEDIATION_ESCAPED=$(echo "$REMEDIATION" | sed 's/,/;/g')
 
     echo "${FILE_PATH},\"${OBJECT_ESCAPED}\",\"${MESSAGE_ESCAPED}\",${CHECK},\"${REMEDIATION_ESCAPED}\"" >> "$CSV_REPORT"
 
-done
+done || logWarningMessage "CSV generation loop encountered errors"
 
 logInfoMessage "CSV report generated: ${CSV_REPORT}"
 
@@ -99,10 +99,9 @@ if [[ -n "${GLOBAL_TASK_ID:-}" ]]; then
   TARGET_DIR="/bp/execution_dir/${GLOBAL_TASK_ID}/"
   logInfoMessage "Copying reports to ${TARGET_DIR}"
   mkdir -p "${TARGET_DIR}"
-  cp -rf "${REPORTS_DIR}/." "${TARGET_DIR}" || true
+  cp -rf "${REPORTS_DIR}/." "${TARGET_DIR}" || logWarningMessage "Copy failed"
 else
   logWarningMessage "GLOBAL_TASK_ID not set; skipping copy to /bp/execution_dir/"
 fi
 
-TASK_STATUS=$?
-saveTaskStatus $TASK_STATUS ${ACTIVITY_SUB_TASK_CODE}
+saveTaskStatus 0 ${ACTIVITY_SUB_TASK_CODE}

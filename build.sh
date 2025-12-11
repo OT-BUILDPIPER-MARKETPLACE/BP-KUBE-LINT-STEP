@@ -10,7 +10,6 @@ fi
 # --------------------------------------------------------------
 source /opt/buildpiper/shell-functions/functions.sh
 source /opt/buildpiper/shell-functions/log-functions.sh
-source /opt/buildpiper/shell-functions/getDataFile.sh
 
 # --------------------------------------------------------------
 # Variables
